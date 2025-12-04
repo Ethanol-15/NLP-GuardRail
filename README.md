@@ -28,3 +28,9 @@ Note: You should get small models so that we can run this locally, but not too s
 - Semantic Similarity Module to use with RAG to determine hallucination (SBERT) (Takes Context and Raw LLM Input)
 #### What should this return?
   - A Semantic Similarity Score
+## Setting up the 
+Once you have
+Set your virtual environment with the following code in the terminal.
+```python
+python -m venv venv
+```

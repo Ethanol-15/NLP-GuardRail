@@ -17,5 +17,8 @@ class ToxicityClassifier:
         toxicity_score = float(probs.sum().item())
         return toxicity_score
 
-def run(text: str):
+def toxicity_run(text: str):
+    """
+    Runs the toxicity module
+    """
     return ToxicityClassifier().predict_toxicity(text)
