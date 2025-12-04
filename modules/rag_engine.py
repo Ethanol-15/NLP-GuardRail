@@ -1,8 +1,14 @@
+# some imports needed
+# pip install datasets chromadb sentence-transformers wikipedia
+
 import chromadb
 import wikipedia
 from sentence_transformers import SentenceTransformer
 from chromadb.utils import embedding_functions
-import uuid
+import uuid # used maybe for the uuid
+
+# hash each entry in the vector db, to get less redundancies
+import hashlib
 
 class ContextualizationEngine:
     def __init__(self, collection_name="knowledge_base"):
@@ -13,8 +19,10 @@ class ContextualizationEngine:
         # Using a persistent client saves data to disk. Change path as needed.
         self.chroma_client = chromadb.PersistentClient(path="./chroma_db")
         
+
         # 2. Load the specific embedding model requested
         model_name = "sentence-transformers/all-MiniLM-L6-v2"
+        print(f"📥 Attempting to load model: {model_name}")
         self.embed_func = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name=model_name
         )
@@ -42,11 +50,11 @@ class ContextualizationEngine:
             # In production, use a sliding window or recursive splitter (e.g., LangChain)
             chunks = [c for c in content.split('\n\n') if len(c) > 50] 
             
-            ids = [str(uuid.uuid4()) for _ in chunks]
+            ids = [self.generate_hash_id(text=c) for c in chunks]
             metadatas = [{"source": "wikipedia", "url": url, "topic": topic} for _ in chunks]
 
             # Add to ChromaDB
-            self.collection.add(
+            self.collection.upsert( # upsert for safe updates
                 documents=chunks,
                 metadatas=metadatas,
                 ids=ids
@@ -75,7 +83,6 @@ class ContextualizationEngine:
             for i in range(len(results['documents'][0])):
                 doc_snippet = results['documents'][0][i]
                 metadata = results['metadatas'][0][i]
-                
                 # Define a closure/lambda that acts as the "snippet function" requested
                 def get_snippet():
                     return doc_snippet
@@ -88,3 +95,10 @@ class ContextualizationEngine:
                 retrieved_items.append(item)
 
         return retrieved_items
+    
+    # Additional Helper Functions
+    def generate_hash_id(self, text):
+        # Create an MD5 hash of the text content
+        # This prevents the same data from being encoded multiple times
+        return hashlib.md5(text.encode('utf-8')).hexdigest()
+    
