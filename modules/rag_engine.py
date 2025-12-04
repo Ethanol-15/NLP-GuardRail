@@ -11,7 +11,7 @@ from chromadb.utils import embedding_functions
 import hashlib
 
 class ContextualizationEngine:
-    def __init__(self, collection_name="knowledge_base"):
+    def __init__(self, chroma_path="./chroma_db", collection_name="knowledge_base"):
         """
         Initialize the RAG engine with ChromaDB and the specific SentenceTransformer model.
         """
@@ -19,7 +19,6 @@ class ContextualizationEngine:
         # Using a persistent client saves data to disk. Change path as needed.
         self.chroma_client = chromadb.PersistentClient(path="./chroma_db")
         
-
         # 2. Load the specific embedding model requested
         model_name = "sentence-transformers/all-MiniLM-L6-v2"
         print(f"📥 Attempting to load model: {model_name}")
@@ -44,14 +43,14 @@ class ContextualizationEngine:
             page = wikipedia.page(topic, auto_suggest=True)
             return page
         except wikipedia.exceptions.DisambiguationError as e:
-            # 2. Handle Ambiguity
+            # Handle Ambiguity
             best_match = e.options[0] # Wikipedia API sorts by relevance, so 0 is usually best
             
             print(f"⚠️ Ambiguous topic '{topic}'.")
             print(f"   ↳ Automatically switching to best match: '{best_match}'")
             print(f"   ↳ (Other options found: {e.options[1:5]})")
             
-            # 3. Retry fetching with the specific title
+            # Retry fetching with the specific title
             try:
                 page = wikipedia.page(best_match, auto_suggest=False)
                 return page
@@ -71,8 +70,8 @@ class ContextualizationEngine:
             content = page.content
             url = page.url
             
-            # chunking strategy (Simple paragraph split for this demo)
-            # In production, use a sliding window or recursive splitter (e.g., LangChain)
+            # chunking strategy (Simple paragraph split)
+            # TODO: In production, use a sliding window or recursive splitter (e.g., LangChain)
             chunks = [c for c in content.split('\n\n') if len(c) > 50] 
             
             ids = [self.generate_hash_id(text=c) for c in chunks]
@@ -103,17 +102,17 @@ class ContextualizationEngine:
         retrieved_items = []
         
         if results['documents']:
-            for i in range(len(results['documents'][0])):
-                doc_snippet = results['documents'][0][i]
+            snippets = results['documents'][0]
+            for i in range(len(snippets)):
+                doc_snippet = snippets[i]
                 metadata = results['metadatas'][0][i]
-                # Define a closure/lambda that acts as the "snippet function" requested
-                def get_snippet():
-                    return doc_snippet
+                distance = results['distances'][0][i]
 
                 item = {
                     "source_url": metadata.get('url'),
                     "topic": metadata.get('topic'),
-                    "get_context_snippet": get_snippet # The requested function
+                    "context_snippet": doc_snippet, # The requested function
+                    "distance": distance
                 }
                 retrieved_items.append(item)
 
