@@ -3,9 +3,9 @@
 
 import chromadb
 import wikipedia
+from wikipedia import WikipediaPage # just for type checking
 from sentence_transformers import SentenceTransformer
 from chromadb.utils import embedding_functions
-import uuid # used maybe for the uuid
 
 # hash each entry in the vector db, to get less redundancies
 import hashlib
@@ -35,6 +35,30 @@ class ContextualizationEngine:
         )
         print(f"✅ Engine initialized with model: {model_name}")
 
+
+    def handle_topic_ambiguity(self, topic) -> WikipediaPage:
+        """
+        Handles ambiguity in the ingestion process.
+        """
+        try:
+            page = wikipedia.page(topic, auto_suggest=True)
+            return page
+        except wikipedia.exceptions.DisambiguationError as e:
+            # 2. Handle Ambiguity
+            best_match = e.options[0] # Wikipedia API sorts by relevance, so 0 is usually best
+            
+            print(f"⚠️ Ambiguous topic '{topic}'.")
+            print(f"   ↳ Automatically switching to best match: '{best_match}'")
+            print(f"   ↳ (Other options found: {e.options[1:5]})")
+            
+            # 3. Retry fetching with the specific title
+            try:
+                page = wikipedia.page(best_match, auto_suggest=False)
+                return page
+            except Exception as nested_error:
+                print(f"❌ Failed to retrieve the auto-selected topic '{best_match}'.")
+                raise nested_error
+
     def ingest_wikipedia_topic(self, topic):
         """
         Fetches a Wikipedia page, chunks the text, and stores it in the Vector DB.
@@ -42,7 +66,8 @@ class ContextualizationEngine:
         print(f"📥 Fetching and processing: {topic}...")
         try:
             # Fetch full page
-            page = wikipedia.page(topic, auto_suggest=True)
+            page = self.handle_topic_ambiguity(topic)
+
             content = page.content
             url = page.url
             
@@ -60,11 +85,9 @@ class ContextualizationEngine:
                 ids=ids
             )
             print(f"✅ Successfully indexed {len(chunks)} chunks for '{topic}'.")
-            
-        except wikipedia.exceptions.DisambiguationError as e:
-            print(f"⚠️ Ambiguous topic. Try one of these: {e.options[:5]}")
+        
         except wikipedia.exceptions.PageError:
-            print(f"⚠️ Page '{topic}' not found.")
+            print(f"⚠️ Page '{topic}' not found by Wikipedia.")
 
     def retrieve_context(self, query, n_results=3):
         """
