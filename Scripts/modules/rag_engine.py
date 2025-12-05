@@ -36,13 +36,14 @@ class ContextualizationEngine:
         )
         print(f"✅ Engine initialized with model: {model_name}")
 
-    def ingest_wikipedia_topic(self, topic):
+    def ingest_wikipedia_topic(self, topic, max_chunks=3):
         """
         Fetches a Wikipedia page, chunks the text, and stores it in the Vector DB. 
         
         **NOTE:** Topic should be as direct as possible.
         Params:
             topic: The topic to fetch and ingest from Wikipedia (e.g. Faker (gamer), Kim Jong Un)
+            max_chunks: The maximum number of chunks to ingest (default: 3)
         """
         print(f"📥 Fetching and processing: {topic}...")
         try:
@@ -54,23 +55,27 @@ class ContextualizationEngine:
             
             # chunking strategy (Simple paragraph split)
             # TODO: In production, use a sliding window or recursive splitter (e.g., LangChain)
-            chunks = [c for c in content.split('\n\n') if len(c) > 50] 
+            all_chunks = [c for c in content.split('\n\n') if len(c) > 50]
+
+            # Wikipedia has an inverted pyramid structure 
+            # this means that most of the important information is at the top
+            top_chunks = all_chunks[:max_chunks]
             
-            ids = [self.generate_hash_id(text=c) for c in chunks]
-            metadatas = [{"source": "wikipedia", "url": url, "topic": topic} for _ in chunks]
+            ids = [self.generate_hash_id(text=c) for c in top_chunks]
+            metadatas = [{"source": "wikipedia", "url": url, "topic": topic} for _ in top_chunks]
 
             # Add to ChromaDB
             self.collection.upsert( # upsert for safe updates
-                documents=chunks,
+                documents=top_chunks,
                 metadatas=metadatas,
                 ids=ids
             )
-            print(f"✅ Successfully indexed {len(chunks)} chunks for '{topic}'.")
+            print(f"✅ Successfully indexed {len(top_chunks)} chunks for '{topic}'.")
         
         except wikipedia.exceptions.PageError:
             print(f"⚠️ Page '{topic}' not found by Wikipedia.")
 
-    def retrieve_context(self, query, n_results=3, ingest_if_needed=False):
+    def retrieve_context(self, query, n_results=3, ingest_if_needed=True):
         """
         Searches the database for relevant context based on the query.
         Returns a dictionary containing the Link and a context-fetching function.
@@ -97,7 +102,8 @@ class ContextualizationEngine:
                     total_rating += rating.value
                 
                 # Re-ingest the query if the results are not relevant enough
-                if total_rating < 3:
+                if self.has_strong_enough_relevance(total_rating) == False:
+                    print("Not enough relevant documents found, re-ingesting query...")
                     self.ingest_wikipedia_topic(query)
                     results = self.collection.query(
                         query_texts=[query],
@@ -165,10 +171,25 @@ class ContextualizationEngine:
     # Add specific distance ratings
 
     class DISTANCE_RATING(Enum):
-        STRONG = 5
-        GOOD = 3
+        """
+        Enum for the distance rating categories. 
+        This also assigns a specific strength to each category.
+        """
+        STRONG = 8
+        GOOD = 5
         WEAK = 1
         IRRELEVANT = 0
+
+    @staticmethod
+    def has_strong_enough_relevance(distance_rating) -> bool:
+        """
+        Checks if the total distance rating is strong enough to be considered relevant.
+        Returns a boolean.
+        Params:
+            distance_rating: The total distance rating of the given documents.
+        """
+        # this is easier to pass the more documents are retrieved.
+        return distance_rating >= ContextualizationEngine.DISTANCE_RATING.STRONG.value
     
     @staticmethod
     def interpret_distance(distance) -> DISTANCE_RATING:
