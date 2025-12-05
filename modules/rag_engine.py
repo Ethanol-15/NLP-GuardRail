@@ -10,6 +10,8 @@ from chromadb.utils import embedding_functions
 # hash each entry in the vector db, to get less redundancies
 import hashlib
 
+from enum import Enum
+
 class ContextualizationEngine:
     def __init__(self, chroma_path="./chroma_db", collection_name="knowledge_base"):
         """
@@ -127,3 +129,20 @@ class ContextualizationEngine:
         # This prevents the same data from being encoded multiple times
         return hashlib.md5(text.encode('utf-8')).hexdigest()
     
+    class DISTANCE_RATING(Enum):
+        STRONG = 1
+        GOOD = 2
+        WEAK = 3
+        IRRELEVANT = -999
+    
+    @staticmethod
+    def rate_distance(distance):
+        if distance < 0.20:
+            return ContextualizationEngine.DISTANCE_RATING.STRONG
+        elif distance < 0.45:
+            return ContextualizationEngine.DISTANCE_RATING.GOOD
+        elif distance < 0.60:
+            return ContextualizationEngine.DISTANCE_RATING.WEAK
+        else:
+            return ContextualizationEngine.DISTANCE_RATING.IRRELEVANT
+        

@@ -25,12 +25,12 @@ if context_results:
     for idx, result in enumerate(context_results):
         url = result['source_url']
         # Calling the function inside the result to get the text
-        snippet_text = result['context_snippet']
+        snippet_text = result['get_context_snippet']()
         
         print(f"--- Result {idx + 1} ---")
         
         print(f"🔗 Link: {url}")
-        print(f"📈 Relevance Score: {result['distance']:.4f}") # this uses cosine similarity (could be configured)
+        print(f"📈 Distance: {result['distance']:.4f} ({ContextualizationEngine.rate_distance(result['distance'])})") # this uses cosine similarity (could be configured)
         print(f"📄 Snippet: {snippet_text[:200]}...") # Truncated for display
         
         print("\n")
