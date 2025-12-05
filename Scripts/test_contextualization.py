@@ -16,7 +16,7 @@ user_query = input("Insert Query:") # test some evil words here
 print(f"🔎 User Query: {user_query}")
 
 # 4. Retrieve Context
-context_results = rag.retrieve_context(user_query)
+context_results = rag.retrieve_context(user_query, ingest_if_needed=True)
 
 # 5. Display Results (Simulating the output required)
 if context_results:
@@ -30,7 +30,7 @@ if context_results:
         print(f"--- Result {idx + 1} ---")
         
         print(f"🔗 Link: {url}")
-        print(f"📈 Distance: {result['distance']:.4f} ({ContextualizationEngine.rate_distance(result['distance'])})") # this uses cosine similarity (could be configured)
+        print(f"📈 Distance: {result['distance']:.4f} ({ContextualizationEngine.interpret_distance(result['distance'])})") # this uses cosine similarity (could be configured)
         print(f"📄 Snippet: {snippet_text[:200]}...") # Truncated for display
         
         print("\n")
