@@ -102,16 +102,19 @@ class ContextualizationEngine:
         retrieved_items = []
         
         if results['documents']:
-            snippets = results['documents'][0]
-            for i in range(len(snippets)):
-                doc_snippet = snippets[i]
+            result_len = len(results['documents'][0])
+            for i in range(result_len):
+                doc_snippet = results['documents'][0][i]
                 metadata = results['metadatas'][0][i]
                 distance = results['distances'][0][i]
+
+                def get_snippet(text=doc_snippet):
+                    return text
 
                 item = {
                     "source_url": metadata.get('url'),
                     "topic": metadata.get('topic'),
-                    "context_snippet": doc_snippet, # The requested function
+                    "get_context_snippet": get_snippet, # The requested function
                     "distance": distance
                 }
                 retrieved_items.append(item)
