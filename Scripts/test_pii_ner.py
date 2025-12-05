@@ -1,10 +1,29 @@
-from modules.pii_ner.pii_ner import PIINER
+import sys
+import os
 
-detector = PIINER()
+current_dir = os.path.dirname(os.path.abspath(__file__))
 
-sample = "My name is Shan Cabantugan and my email is shancabantugan@gmail.com and my number is 09160001234."
+project_root = os.path.abspath(os.path.join(current_dir, ".."))
 
-result = detector.analyze(sample)
+sys.path.append(project_root)
 
-print("\n=== RESULT ===")
-print(result)
+from modules.pii_ner import PIINER
+
+pii = PIINER()
+
+text = (
+    "My name is Shan Cabantugan and I live in Manila. "
+    "You can email me at shan@gmail.com or text me at 09161234567."
+)
+
+result = pii.analyze(text, redact_person=True, redact_location=True)
+
+print("\n=== ENTITIES ===")
+for ent in result["entities"]:
+    print(ent)
+
+print("\n=== PERSON + LOCATION COUNT ===")
+print(result["person_location_count"])
+
+print("\n=== REDACTED TEXT ===")
+print(result["redacted_text"])
