@@ -36,7 +36,7 @@ class ContextualizationEngine:
         )
         print(f"✅ Engine initialized with model: {model_name}")
 
-    def ingest_wikipedia_topic(self, topic, max_chunks=3):
+    def ingest_wikipedia_topic(self, topic, max_chunks=3, lang="en"):
         """
         Fetches a Wikipedia page, chunks the text, and stores it in the Vector DB. 
         
@@ -44,8 +44,10 @@ class ContextualizationEngine:
         Params:
             topic: The topic to fetch and ingest from Wikipedia (e.g. Faker (gamer), Kim Jong Un)
             max_chunks: The maximum number of chunks to ingest (default: 3)
+            lang: The language of Wikipedia to use (default: en)
         """
         print(f"📥 Fetching and processing: {topic}...")
+        wikipedia.set_lang(lang)
         try:
             # Fetch full page
             page = self.handle_topic_ambiguity(topic)

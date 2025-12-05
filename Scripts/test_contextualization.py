@@ -11,7 +11,7 @@ rag = ContextualizationEngine()
 print("------------------------------------------------")
 
 # 3. The Query Loop
-user_query = input("🔎 Insert Query:") # test some evil words here
+user_query = input("🔎 Insert Query:  ") # test some evil words here
 
 # 4. Retrieve Context
 context_results = rag.retrieve_context(user_query, ingest_if_needed=True)
