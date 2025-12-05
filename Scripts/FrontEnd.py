@@ -164,7 +164,7 @@ with st.sidebar:
         key="overall_budget_input",
         help="Sets the maximum token limit or cost unit for the generation."
     )
-
+    
     
 st.header("Model Output")
 

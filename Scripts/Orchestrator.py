@@ -1,5 +1,6 @@
 from modules.toxicity_clasifier import toxicity_run
 from LLM_Module import llm_module
+# Import patterns here.
 import logging
 logging.basicConfig(filename='results.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 class LLMFilteredException(Exception):
@@ -96,11 +97,12 @@ class Orchestrator:
     def validate_input(self,model:llm_module,input:str):
         try:
             toxicity_score = toxicity_run()
-            self.decide_action(toxicity_score,self.config.threshold_toxicity)    
+            input = self.decide_action(toxicity_score,self.config.threshold_toxicity)    
+            pii_score
             overall_score = toxicity_score
-            validated_input = self.decide_action(overall_score)
-            if(validated_input == "Filtered"):
-                print()
+            input = self.decide_action(overall_score)
+            
+            
         except LLMFilteredException as e:
             return e.message
         return input    
