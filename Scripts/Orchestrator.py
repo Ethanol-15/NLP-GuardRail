@@ -16,10 +16,13 @@ class LLMRewordedException(Exception):
         super().__init__(self.message)
         
 class OrchestratorConfiguration:
-    """Configures the orchestrator's modules sensitivities.
+    """
+    Configuration class for the LLM Orchestrator guardrail.
 
-    This class holds the threshold scores and weights for various guardrail 
-    checks, determining when a query or response should be flagged or blocked.
+    It holds all the thresholds, weights, and flags necessary to define the
+    behavior of the input and output validation checks. A negative threshold
+    value disables the corresponding check. Weights are used to calculate
+    the overall risk score.
     """
     def __init__(
         self,
@@ -40,21 +43,46 @@ class OrchestratorConfiguration:
         weight_toxicity:float = 1,
         threshold_llm_rephrase:float = 0.5,
                  ):
-        """Initializes the orchestrator's configuration parameters.
+        """
+        Initializes the configuration parameters for the Orchestrator.
 
         Args:
-            banned_word_allcase: If True, banned word checks are case-insensitive.
-            threshold_overall_score: The final combined score above which the content is flagged.
-            threshold_banned_word_tolerance: Maximum number of banned words allowed before filtering.
-            threshold_prompt_injection: Score to flag potential Prompt Injection attempts (0.0 to 1.0).
-            threshold_rag_context_distance: Max distance for RAG context relevance check. 0 disables the check.
-            threshold_semantic_similarity_threshold: Score to flag semantically similar queries to known bad ones (0.0 to 1.0).
-            threshold_toxicity: Score to flag toxic or harmful content (0.0 to 1.0).
-            weight_banned_word: Weight applied to the banned word score for overall calculation.
-            weight_prompt_injection: Weight applied to the prompt injection score.
-            weight_semantic_similarity_threshold: Weight applied to the semantic similarity score.
-            weight_toxicity: Weight applied to the toxicity score.
-            threshold_llm_rephrase: Score threshold for filtering LLM rephrased output.
+            banned_word_allcase (bool, optional): If True, banned word checks
+                                                  are case-insensitive. Defaults to True.
+            enable_rag (bool, optional): If True, enables Retrieval-Augmented
+                                         Generation (RAG) context attachment. Defaults to True.
+            weight_overall_score (float, optional): The multiplier applied to the
+                                                    max possible overall risk score to define
+                                                    the overall filtering threshold. Defaults to 0.7.
+
+            # Thresholds (Immediate Filtering)
+            threshold_banned_word_tolerance (int, optional): Max number of banned words allowed.
+                                                             Negative value disables check. Defaults to 3.
+            threshold_prompt_injection (float, optional): Max probability (0-1) for prompt
+                                                          injection allowed. Negative value disables. Defaults to 0.5.
+            threshold_pii (int, optional): Max number of PII entities allowed. Negative value disables.
+                                           Defaults to 3.
+            threshold_rag_context_distance (int, optional): Maximum distance/score for RAG
+                                                            context relevance. If exceeded, RAG is not used.
+                                                            Defaults to 0.
+            threshold_semantic_similarity_threshold (float, optional): Minimum semantic similarity
+                                                                       (0-1) required for output validation (hallucination check).
+                                                                       Defaults to 0.5.
+            threshold_toxicity (float, optional): Max toxicity probability (0-1) allowed.
+                                                  Negative value disables. Defaults to 0.5.
+
+            # Weights (Overall Score Contribution)
+            weight_banned_word (float, optional): Weight for banned word count in overall score.
+                                                  Defaults to 0.2.
+            weight_prompt_injection (float, optional): Weight for prompt injection probability in
+                                                       overall score. Defaults to 0.2.
+            weight_pii (float, optional): Weight for PII count in overall score. Defaults to 0.2.
+            weight_toxicity (float, optional): Weight multiplier for toxicity probability in
+                                               overall score. Defaults to 1.
+
+            threshold_llm_rephrase (float, optional): Multiplier for the filter threshold. If a score
+                                                      is between `threshold` and `threshold * (1 + threshold_llm_rephrase)`,
+                                                      the input is rephrased instead of filtered. Defaults to 0.5.
         """
         self.banned_word_allcase = banned_word_allcase
         self.banned_words = []
@@ -74,13 +102,43 @@ class OrchestratorConfiguration:
         self.weight_overall_score = weight_overall_score
         self.sanity_check()
     def add_banned_words(self,banned_words:list):
+        """
+        Adds a list of words to the internal banned words list.
+
+        Args:
+            banned_words (list): A list of strings to be added to the banned words list.
+        """
         self.banned_words.extend(banned_words)
     def add_regex(self,regex:list):
+        """
+        Adds a list of regex patterns to the internal regex list for filtering.
+
+        Args:
+            regex (list): A list of compiled regex patterns or strings to be added.
+        """
         self.regex = regex.extend(regex)
     def default_english_regex(self):
+        """
+        Sets the configuration to use a default set of English-language regex patterns
+        and banned words 
+        """
         self.regex = []
         self.banned_words = []
+    def default_filipino_regex(self):
+        """
+        Sets the configuration to use a default set of Filipino-language regex patterns
+        and banned words
+        """
+        self.regex = []
+        self.banned_word = []
     def sanity_check(self):
+        """
+        Performs basic validation on the configuration values to ensure they are
+        within acceptable bounds (e.g., probabilities between 0 and 1).
+
+        Raises:
+            Exception: If any configuration value is invalid.
+        """
         error_message = ""
         if(self.threshold_toxicity < 0 or self.threshold_toxicity > 1):
             error_message.join(f"Toxicity threshold must be < 0 and > 1, found {self.threshold_toxicity}\n") 
@@ -98,14 +156,58 @@ class OrchestratorConfiguration:
     def default():
         """
         A default configuration with a default list of banned english words.
+
+        Returns:
+            OrchestratorConfiguration: A new instance of OrchestratorConfiguration
+                                       with default settings and English-based
+                                       banned words/regex.
         """
         config = OrchestratorConfiguration()
         config.default_english_regex()
         return config
 class Orchestrator:
+    """
+    Orchestrates the LLM guardrail process by validating inputs and outputs,
+    and handling the prompting of the underlying language model.
+
+    This class manages various safety checks (e.g., banned words, toxicity, PII,
+    prompt injection) and decides on actions like filtering, rewording, or
+    allowing the input/output based on configured thresholds.
+    """
     def __init__(self,config:OrchestratorConfiguration):
+        """
+        Initializes the Orchestrator with a specific configuration.
+
+        Args:
+            config (OrchestratorConfiguration): An object holding all the
+                                               thresholds, weights, and flags
+                                               required for the guardrail logic.
+        """
         self.config = config
     def validate_input(self,safety_model:llm_module,input:str):
+        """
+        Performs a series of safety checks on the user input before it is
+        passed to the main LLM.
+
+        Checks include: Banned Words, Toxicity Score, PII detection, and
+        Prompt Injection probability, culminating in an overall weighted score.
+
+        Args:
+            safety_model (llm_module): The LLM module used for safety-related
+                                       tasks, such as rewording an unsafe prompt.
+            input (str): The raw user input string to be validated.
+
+        Returns:
+            str: The original input string if all checks pass, or the message
+                 from an exception if the input is filtered or reworded.
+
+        Raises:
+            LLMFilteredException: If any single check or the overall score
+                                  exceeds its filtering threshold.
+            LLMRewordedException: If a prompt exceeds the rephrase threshold,
+                                  but not the filtering threshold. The exception
+                                  carries the rephrased input.
+        """
         try:
             banned_word_score = 1 #INSERT BANNED WORD MODULE HERE, NUMBER OF BANNED WORKS
             self.decide_action(safety_model,banned_word_score,self.config.threshold_banned_word_tolerance,"Banned_Words",input)
@@ -136,6 +238,23 @@ class Orchestrator:
         except LLMRewordedException as e:
             return e.input
     def prompt_model(self,llm_model:llm_module,input:str,max_tokens:int = 2**12,chat_log:dict | None = None):
+        """
+        Handles the interaction with the main LLM. It optionally attaches RAG
+        (Retrieval-Augmented Generation) context to the input if RAG is enabled
+        in the configuration and the context relevance is sufficient.
+
+        Args:
+            llm_model (llm_module): The main LLM module to be prompted.
+            input (str): The validated user input.
+            max_tokens (int, optional): The maximum number of new tokens to
+                                        generate. Defaults to 4096.
+            chat_log (dict | None, optional): The conversational history, if any.
+                                              Defaults to None.
+
+        Returns:
+            tuple: A tuple containing the updated message log and the LLM's
+                   generated response string.
+        """
         def attach_RAG_Context(input):
             context = ""
             rag_distance = 1 # PLaceholder for now
@@ -153,12 +272,49 @@ class Orchestrator:
         )
         return messages, response
     def validate_output(self,llm_output:str,context:str):
+        """
+        Performs safety checks on the LLM's output, primarily for hallucinations
+        or incoherence, by checking semantic similarity against the context.
+
+        Args:
+            llm_output (str): The raw output string from the LLM.
+            context (str): The context (e.g., RAG content or conversational
+                           context) used to generate the output. Can be None.
+
+        Returns:
+            str: The LLM output string if it passes the validation check.
+
+        Raises:
+            LLMFilteredException: If the semantic similarity score is below the
+                                  configured threshold (indicating hallucination).
+        """
         if(context is None):
             return llm_output
         semantic_similarity_score = 1
         self.decide_action(semantic_similarity_score,self.config.threshold_semantic_similarity_threshold,"Hallucination",llm_output)
         return llm_output
     def decide_action(self,model:llm_module,score,score_threshold,filter_reason:str,current_input:str):
+        """
+        Core guardrail logic to determine the appropriate action (allow, reword,
+        or filter) based on a specific safety score and its threshold.
+
+        Args:
+            model (llm_module): The LLM module used for safety operations (e.g.,
+                                rewording).
+            score (float | int): The computed safety score (e.g., toxicity
+                                 probability, banned word count).
+            score_threshold (float | int): The maximum acceptable score for the
+                                           current check.
+            filter_reason (str): A descriptive label for the type of check
+                                 (e.g., "Toxicity_Score", "Hallucination").
+            current_input (str): The input string being checked.
+
+        Raises:
+            LLMRewordedException: If the score is above the rephrase threshold
+                                  but below the filter threshold.
+            LLMFilteredException: If the score exceeds the primary filter
+                                  threshold.
+        """
         if(score_threshold<0):
             return 
         if(score>score_threshold):
