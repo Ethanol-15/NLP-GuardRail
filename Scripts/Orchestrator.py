@@ -24,17 +24,19 @@ class OrchestratorConfiguration:
     def __init__(
         self,
         banned_word_allcase:bool = True,
-        threshold_overall_score:float = 0.7,
+        enable_rag:bool = True,
+        weight_overall_score:float = 0.7,
         # Thresholds, if not passed immediately filters the content. If negative, is disabled.
         threshold_banned_word_tolerance:int = 3,
         threshold_prompt_injection:float = 0.5,
+        threshold_pii:int = 3,
         threshold_rag_context_distance:int = 0,
         threshold_semantic_similarity_threshold:float = 0.5,
         threshold_toxicity:float = 0.5,
         # Weights, affect the overall score if detected, setting to 0 disables it.
-        weight_banned_word:float = 1,
-        weight_prompt_injection:float = 1,
-        weight_semantic_similarity_threshold:float = 1,
+        weight_banned_word:float = 0.2,
+        weight_prompt_injection:float = 0.2,
+        weight_pii:float = 0.2,
         weight_toxicity:float = 1,
         threshold_llm_rephrase:float = 0.5,
                  ):
@@ -56,18 +58,20 @@ class OrchestratorConfiguration:
         """
         self.banned_word_allcase = banned_word_allcase
         self.banned_words = []
-        self.threshold_overall_score = threshold_overall_score
+        self.enable_rag = enable_rag
         self.threshold_banned_word_tolerance = threshold_banned_word_tolerance
         self.threshold_llm_rephrase = threshold_llm_rephrase
+        self.threshold_pii = threshold_pii
         self.threshold_prompt_injection = threshold_prompt_injection
         self.threshold_RAG_context_distance = threshold_rag_context_distance
         self.threshold_semantic_similarity_threshold = threshold_semantic_similarity_threshold
         self.threshold_toxicity = threshold_toxicity
         self.regex = []
         self.weight_banned_word = weight_banned_word
+        self.weight_pii = weight_pii
         self.weight_prompt_injection = weight_prompt_injection
-        self.weight_semantic_similarity_threshold = weight_semantic_similarity_threshold
         self.weight_toxicity = weight_toxicity
+        self.weight_overall_score = weight_overall_score
         self.sanity_check()
     def add_banned_words(self,banned_words:list):
         self.banned_words.extend(banned_words)
@@ -79,15 +83,15 @@ class OrchestratorConfiguration:
     def sanity_check(self):
         error_message = ""
         if(self.threshold_toxicity < 0 or self.threshold_toxicity > 1):
-            error_message.join(f"Toxicity threshold must be < 0 and > 1, found {self.toxicity_threshold}\n") 
-        if(self.threshold_overall_score <0 or self.threshold_overall_score > 1):
-            error_message.join(f"Overall score must be < 0 and > 1, found {self.threshold_overall_score}\n")
+            error_message.join(f"Toxicity threshold must be < 0 and > 1, found {self.threshold_toxicity}\n") 
+        if(self.weight_overall_score <0 or self.weight_overall_score > 1):
+            error_message.join(f"Overall score must be < 0 and > 1, found {self.weight_overall_score}\n")
         if(self.threshold_banned_word_tolerance is not int):
             error_message.join(f"Banned word tolerance threshold must be an integer!, found {self.threshold_banned_word_tolerance}\n")
         if(self.threshold_prompt_injection is not int):
             error_message.join(f"Prompt injection tolerance threshold must be an integer!, found {self.threshold_banned_word_tolerance}\n")
         if(self.threshold_banned_word_tolerance):
-            error_message.join(f"Banned word tolerance threshold")
+            error_message.join(f"Banned word tolerance threshold must be an ")
         if(len(error_message>0)):
             raise Exception(f"Configuration failed, with the following errors:\n{error_message}")
     @staticmethod
@@ -101,41 +105,64 @@ class OrchestratorConfiguration:
 class Orchestrator:
     def __init__(self,config:OrchestratorConfiguration):
         self.config = config
-    def validate_input(self,model:llm_module,input:str):
+    def validate_input(self,safety_model:llm_module,input:str):
         try:
-            banned_word_score = 1 #INSERT BANNED WORD MODULE HERE
-            self.decide_action(banned_word_score,self.config.threshold_banned_word_tolerance)
-            toxicity_score = toxicity_run()
-            self.decide_action(toxicity_score,self.config.threshold_toxicity)
-            piiner_results = PIINER().analyze()
-            self.decide_action()
-            self.decide_action()
-            overall_score = toxicity_score
-            self.decide_action(overall_score,self.config.threshold_overall_score,"Overall score,",input)
+            banned_word_score = 1 #INSERT BANNED WORD MODULE HERE, NUMBER OF BANNED WORKS
+            self.decide_action(safety_model,banned_word_score,self.config.threshold_banned_word_tolerance,"Banned_Words",input)
+            toxicity_probability = toxicity_run()
+            self.decide_action(safety_model,toxicity_probability,self.config.threshold_toxicity,"Toxicity_Score",input)
+            piiner_results_count = PIINER().analyze() #TODO: Insert results, NUMBER OF PII FOUND
+            self.decide_action(safety_model,piiner_results_count,self.config.threshold_pii,"Personable_Interifiable_Information",input)
+            prompt_injection_prob = 0 #TODO: PROMPT INJECT PROBABILITY
+            self.decide_action(safety_model,prompt_injection_prob,self.config.threshold_prompt_injection,"Prompt_Injection",input)
+            # Last check if the combined results do not pass the threshold
+            overall_score = (
+                            # Base Score
+                            (banned_word_score * self.config.weight_banned_word + piiner_results_count * self.config.weight_pii)
+                            # Multipliers
+                            ((1+toxicity_probability) * self.config.weight_toxicity) *
+                            ((1+prompt_injection_prob) * self.config.weight_prompt_injection)
+                            )
+            max_score = (
+                        (banned_word_score + piiner_results_count) *
+                        (1+prompt_injection_prob) * (1+toxicity_probability) 
+                        )
             
-            
+            self.decide_action(overall_score,self.config.weight_overall_score * max_score,"Overall_Score,",input)
             return input    
         except LLMFilteredException as e:
             # NOTE: Can be improved by adding more checks to the LLM_Prompt, but we are merely passing it here.
             return e.message
         except LLMRewordedException as e:
             return e.input
-    def validate_output(self,llm_input,score:float):
-        def determine_halluc(context:str,text:str):
-            if(context is None):
-                return
-            
-        
-        
-        return llm_input
+    def prompt_model(self,llm_model:llm_module,input:str,max_tokens:int = 2**12,chat_log:dict | None = None):
+        def attach_RAG_Context(input):
+            context = ""
+            rag_distance = 1 # PLaceholder for now
+            #TODO: Pass the RAG System here
+            if(rag_distance> self.config.threshold_RAG_context_distance):
+                return ""
+            return context
+        if(self.config.enable_rag):
+            input = f"Use the following as context for the prompt: \"{attach_RAG_Context(input)}\"\n"+input
+        messages, response =llm_model.chat_model(
+            user_prompt=input,
+            max_new_tokens=max_tokens,
+            messages=chat_log,
+            system_context=llm_module.llm_contexts["SeaLLM_Norm"]
+        )
+        return messages, response
+    def validate_output(self,llm_output:str,context:str):
+        if(context is None):
+            return llm_output
+        semantic_similarity_score = 1
+        self.decide_action(semantic_similarity_score,self.config.threshold_semantic_similarity_threshold,"Hallucination",llm_output)
+        return llm_output
     def decide_action(self,model:llm_module,score,score_threshold,filter_reason:str,current_input:str):
-        """
-        
-        """
         if(score_threshold<0):
             return 
         if(score>score_threshold):
-            if(score_threshold*self.config.threshold_llm_rephrase>score):
+            if(score_threshold*self.config.threshold_llm_rephrase>score and filter_reason is not "Hallucination"):
                 #NOTE: Since we are using the same model for safety llm (due to restrictions, we just pass this to the same model)
                 logging.debug("Safety_LLM_Prompt_Triggered, rewording the prompt into a safer prompt")
                 cleaned_output = model.prompt_model_single(system_context=llm_module.llm_contexts["SeaLLM_Safety_Mode"],user_prompt=current_input)
@@ -146,6 +173,4 @@ class Orchestrator:
                 raise LLMFilteredException(f"Filtered due to {filter_reason}, {score} > {score_threshold}")
         logging.debug(f"Passed {filter_reason}")
         return
-        def attach_RAG_Context():
-            #TODO: Pass the RAG Context here
-            pass
+        

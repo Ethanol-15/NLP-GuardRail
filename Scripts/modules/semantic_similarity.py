@@ -28,7 +28,7 @@ class SemanticSimilarityScorer:
         Args:
             text1: First text
             text2: Second text
-            
+        
         Returns:
             Similarity score between 0 and 1
         """
@@ -147,10 +147,8 @@ class SemanticSimilarityScorer:
         """
         Extract individual claims/statements from a response for fine-grained analysis.
         (Simple implementation - can be enhanced with more sophisticated NLP)
-        
         Args:
             text: LLM response text
-            
         Returns:
             List of individual claims
         """
