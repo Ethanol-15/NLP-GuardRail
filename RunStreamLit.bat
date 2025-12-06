@@ -5,7 +5,7 @@ setlocal
 set "SCRIPT_FILE=Scripts\FrontEnd.py"
 set "VENV_DIR=venv"
 set "CURRENT_DIR=%CD%"
-
+echo Enabling Steamlit
 :SEARCH_VENV
     if exist "%CURRENT_DIR%\%VENV_DIR%" (
         set "VENV_PATH=%CURRENT_DIR%\%VENV_DIR%"

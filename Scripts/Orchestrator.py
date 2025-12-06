@@ -1,4 +1,5 @@
 from modules.toxicity_clasifier import toxicity_run
+from modules.pii_ner import PIINER
 from LLM_Module import llm_module
 # Import patterns here.
 import logging
@@ -8,6 +9,12 @@ class LLMFilteredException(Exception):
         self.message = message
         self.reason = reason
         super().__init__(self.message)
+class LLMRewordedException(Exception):
+    def __init__(self,reworded_input:str,message:str):
+        self.input = reworded_input
+        self.message = message
+        super().__init__(self.message)
+        
 class OrchestratorConfiguration:
     """Configures the orchestrator's modules sensitivities.
 
@@ -96,39 +103,49 @@ class Orchestrator:
         self.config = config
     def validate_input(self,model:llm_module,input:str):
         try:
+            banned_word_score = 1 #INSERT BANNED WORD MODULE HERE
+            self.decide_action(banned_word_score,self.config.threshold_banned_word_tolerance)
             toxicity_score = toxicity_run()
-            input = self.decide_action(toxicity_score,self.config.threshold_toxicity)    
-            pii_score
+            self.decide_action(toxicity_score,self.config.threshold_toxicity)
+            piiner_results = PIINER().analyze()
+            self.decide_action()
+            self.decide_action()
             overall_score = toxicity_score
-            input = self.decide_action(overall_score)
+            self.decide_action(overall_score,self.config.threshold_overall_score,"Overall score,",input)
             
             
+            return input    
         except LLMFilteredException as e:
+            # NOTE: Can be improved by adding more checks to the LLM_Prompt, but we are merely passing it here.
             return e.message
-        return input    
+        except LLMRewordedException as e:
+            return e.input
     def validate_output(self,llm_input,score:float):
         def determine_halluc(context:str,text:str):
             if(context is None):
                 return
-            pass
+            
+        
         
         return llm_input
-    def decide_action(self,score,score_threshold,filter_reason:str,current_input:str):
-        if(score_threshold<0):
-            return current_input
+    def decide_action(self,model:llm_module,score,score_threshold,filter_reason:str,current_input:str):
+        """
         
-        if(score_threshold>score):
+        """
+        if(score_threshold<0):
+            return 
+        if(score>score_threshold):
             if(score_threshold*self.config.threshold_llm_rephrase>score):
-                #TODO: Test this to get the actual reworded prompt, maybe change it?
-                #NOTE: Since we are using the same model for safety llm (due to restrictions, we just pass)
-                logging.debug("Safety_LLM_Triggered, rewording the prompt")
-                
-                cleaned_output = self.model.prompt_model_single(system_context=llm_module.llm_contexts["SeaLLM_Safety_Mode"],user_prompt=current_input)
-                self.model.unload_model()
-                return cleaned_output
+                #NOTE: Since we are using the same model for safety llm (due to restrictions, we just pass this to the same model)
+                logging.debug("Safety_LLM_Prompt_Triggered, rewording the prompt into a safer prompt")
+                cleaned_output = model.prompt_model_single(system_context=llm_module.llm_contexts["SeaLLM_Safety_Mode"],user_prompt=current_input)
+                #TODO: Extract the cleaned output.
+                raise LLMRewordedException(cleaned_output)
             else:
-                logging.debug(f"Filtered due to {filter_reason}") 
-                raise LLMFilteredException(f"Filtered due to {filter_reason}")
+                logging.debug(f"Filtered due to {filter_reason}, {score} > {score_threshold}") 
+                raise LLMFilteredException(f"Filtered due to {filter_reason}, {score} > {score_threshold}")
+        logging.debug(f"Passed {filter_reason}")
+        return
         def attach_RAG_Context():
             #TODO: Pass the RAG Context here
             pass

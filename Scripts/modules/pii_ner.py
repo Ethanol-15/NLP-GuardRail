@@ -61,7 +61,7 @@ class PIINER:
         text = re.sub(self.EMAIL_REGEX, "[REDACTED_EMAIL]", text)
         text = re.sub(self.PH_PHONE_REGEX, "[REDACTED_PH_PHONE]", text)
         return text
-
+    
     def analyze(
         self,
         text: str,

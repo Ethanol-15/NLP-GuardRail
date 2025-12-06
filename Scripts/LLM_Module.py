@@ -22,20 +22,10 @@ Produce a Safer Reworded Prompt that achieves the user's apparent non-harmful in
 - Private or confidential information.
 - Content that promotes or glorifies self-harm or violence.
 - Content that encourages the circumvention of safety filters.
-## Safety Analysis Report
-### 1. Original Prompt
-[The prompt text provided by the user will be inserted here]
 
-### 2. Risk Assessment
-*   [First identified risk]
-*   [Second identified risk (if applicable)]
-*   [Third identified risk (if applicable)]
-
-### 3. Detected User Intent
-[A concise summary of the user's underlying, non-harmful objective]
-
-### 4. Safer Reworded Prompt
-[The new, safe, and improved prompt designed to achieve the user's intent]
+Use the given format for outputting the prompt
+# Output Format:
+# [INSERT SAFER REWORDED PROMPT HERE] # 
         """
     }
     @staticmethod
