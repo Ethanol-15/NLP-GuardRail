@@ -76,6 +76,17 @@ class ContextualizationEngine:
         
         except wikipedia.exceptions.PageError:
             print(f"⚠️ Page '{topic}' not found by Wikipedia.")
+            # raise wikipedia.exceptions.PageError(f"⚠️ Page '{topic}' not found by Wikipedia.")
+            
+    def mass_ingest(self, topic_list):
+        """
+        Mass populate the database with the given list of topics.
+        Params:
+            topic_list: A list of topics to populate the database with.
+        """
+        for topic in topic_list:
+            self.ingest_wikipedia_topic(topic)
+    
 
     def retrieve_context(self, query, n_results=3, ingest_if_needed=True):
         """
@@ -145,7 +156,34 @@ class ContextualizationEngine:
     
     def handle_topic_ambiguity(self, topic) -> WikipediaPage:
         """
-        Handles ambiguity in the ingestion process.
+        Handles ambiguity in the ingestion process. Takes the first match by default.
+        Params:
+            topic: The topic to fetch or disambiguate if needed
+        Returns:
+            A wikipedia page object
+        """
+        try:
+            page = wikipedia.page(topic, auto_suggest=True)
+            return page
+        except wikipedia.exceptions.DisambiguationError as e:
+            # Handle Ambiguity
+            best_match = e.options[0] # Wikipedia API sorts by relevance, so 0 is usually best
+            
+            print(f"⚠️ Ambiguous topic '{topic}'.")
+            print(f"   ↳ Automatically switching to best match: '{best_match}'")
+            print(f"   ↳ (Other options found: {e.options[1:5]})")
+            
+            # Retry fetching with the specific title
+            try:
+                page = wikipedia.page(best_match, auto_suggest=False)
+                return page
+            except Exception as nested_error:
+                print(f"❌ Failed to retrieve the auto-selected topic '{best_match}'.")
+                raise nested_error
+            
+    def handle_topic_ambiguity_lists(self, topic) -> WikipediaPage:
+        """
+        Handles ambiguity in the ingestion process. Takes the first match by default.
         Params:
             topic: The topic to fetch or disambiguate if needed
         Returns:
@@ -210,4 +248,3 @@ class ContextualizationEngine:
             return ContextualizationEngine.DISTANCE_RATING.WEAK
         else:
             return ContextualizationEngine.DISTANCE_RATING.IRRELEVANT
-        
