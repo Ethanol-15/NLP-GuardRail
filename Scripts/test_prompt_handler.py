@@ -1,6 +1,8 @@
 from prompt_handler import PromptHandler
+from patterns import REGEX_RULES
 
-handler = PromptHandler(languages=["english", "filipino"])
+handler = PromptHandler(regex_rules=REGEX_RULES,
+                        languages=["english", "filipino"])
 
 english_prompts = [
     "This is so fucking damn annoying!",
