@@ -12,7 +12,7 @@ class PromptInjection:
 
     Attributes
     ----------
-    model_name : str
+    model_name : ProtectAI/deberta-v3-base-prompt-injection
         The HuggingFace model identifier used for tokenization and inference.
     tokenizer : transformers.PreTrainedTokenizer
         Tokenizer used to preprocess input text into model-readable tensors.
