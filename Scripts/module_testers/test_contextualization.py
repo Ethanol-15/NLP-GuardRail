@@ -1,5 +1,4 @@
 from modules.rag_engine import ContextualizationEngine
-
 # 1. Initialize the Engine
 rag = ContextualizationEngine()
 
