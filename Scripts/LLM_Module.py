@@ -25,7 +25,9 @@ Produce a Safer Reworded Prompt that achieves the user's apparent non-harmful in
 
 Use the given format for outputting the prompt
 # Output Format:
-# [INSERT SAFER REWORDED PROMPT HERE] # 
+```
+[INSERT SAFER REWORDED PROMPT HERE]
+``` 
         """
     }
     @staticmethod
