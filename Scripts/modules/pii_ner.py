@@ -1,87 +1,128 @@
-from transformers import pipeline
+import os
 import re
+from gliner import GLiNER
 
 
 class PIINER:
+    """
+    PII Detection and Redaction module using GLiNER Multi-v2.1.
+    Detects PII entities (name, location, email, phone, etc.),
+    counts them, and optionally redacts them.
+    """
 
     EMAIL_REGEX = r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"
     PH_PHONE_REGEX = r"(09\d{9})"
 
+    # PII entity types supported by GLiNER Multi-v2.1
+    PII_LABELS = {
+        "person",
+        "location",
+        "email",
+        "phone_number",
+        "organization",
+        "id_number",
+        "username",
+        "nationality",
+    }
+
     def __init__(self):
-        self.ner = pipeline(
-            "ner",
-            model="dslim/bert-base-NER",
-            aggregation_strategy="simple"
-        )
+        # Prevent symlink errors in Windows cache
+        os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
+        os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+
+        self.model = GLiNER.from_pretrained("urchade/gliner_multi-v2.1")
 
     def detect_entities(self, text: str):
-        return self.ner(text)
+        """
+        Detect GLiNER PII entities.
 
-    def count_persons_and_locations(self, entities):
-        count = 0
-        for ent in entities:
-            if ent["entity_group"] in ["PER", "LOC"]:
-                count += 1
-        return count
-    
+        Returns:
+            list: Each item contains {text, label, start, end, score}
+        """
+        return self.model.predict_entities(text, list(self.PII_LABELS))
+
+    def count_pii(self, entities):
+        """
+        Count only entities classified as PII.
+        """
+        return sum(1 for ent in entities if ent["label"] in self.PII_LABELS)
+
     def redact_entities(
         self,
         text: str,
         entities,
-        redact_person: bool = True,
-        redact_location: bool = True
+        redact_person=True,
+        redact_location=True,
+        redact_other=True
     ):
-        redacted_text = text
-
-        # Sort entities from right to left to avoid shifting indexes
-        entities = sorted(entities, key=lambda e: e["start"], reverse=True)
+        """
+        Redact detected PII entities.
+        Selective flags let you choose what to redact.
+        """
+        redacted = text
+        offset = 0
 
         for ent in entities:
-            ent_type = ent["entity_group"]
+            label = ent["label"]
             start, end = ent["start"], ent["end"]
 
-            if ent_type == "PER" and redact_person:
-                replacement = "[REDACTED_PERSON]"
-            elif ent_type == "LOC" and redact_location:
-                replacement = "[REDACTED_LOCATION]"
-            else:
+            if label == "person" and not redact_person:
+                continue
+            if label == "location" and not redact_location:
+                continue
+            if label not in {"person", "location"} and not redact_other:
                 continue
 
-            # Expand to full words (avoid leftover characters)
-            while start > 0 and redacted_text[start - 1].isalnum():
-                start -= 1
-            while end < len(redacted_text) and redacted_text[end:end+1].isalnum():
-                end += 1
+            replacement = f"[REDACTED_{label.upper()}]"
 
-            redacted_text = redacted_text[:start] + replacement + redacted_text[end:]
+            redacted = (
+                redacted[: start + offset]
+                + replacement
+                + redacted[end + offset :]
+            )
 
-        return redacted_text
-   
+            offset += len(replacement) - (end - start)
+
+        return redacted
+
     def redact_regex(self, text: str):
+
         text = re.sub(self.EMAIL_REGEX, "[REDACTED_EMAIL]", text)
         text = re.sub(self.PH_PHONE_REGEX, "[REDACTED_PH_PHONE]", text)
         return text
-    
+
     def analyze(
         self,
         text: str,
-        redact_person: bool = True,
-        redact_location: bool = True
+        redact_person=True,
+        redact_location=True,
+        redact_other=True
     ):
+        """
+        Run full PII detection + counting + redaction.
+
+        Returns:
+            dict {
+                "entities": [...],
+                "pii_count": int,
+                "redacted_text": str
+            }
+        """
         entities = self.detect_entities(text)
-        person_location_count = self.count_persons_and_locations(entities)
+        pii_count = self.count_pii(entities)
 
         redacted = self.redact_entities(
             text,
             entities,
             redact_person=redact_person,
-            redact_location=redact_location
+            redact_location=redact_location,
+            redact_other=redact_other
         )
 
         redacted = self.redact_regex(redacted)
 
         return {
             "entities": entities,
-            "person_location_count": person_location_count,
+            "pii_count": pii_count,
             "redacted_text": redacted
         }
