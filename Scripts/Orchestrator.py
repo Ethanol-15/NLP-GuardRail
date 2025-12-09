@@ -33,7 +33,7 @@ class OrchestratorConfiguration:
         threshold_banned_word_tolerance:int = 3,
         threshold_prompt_injection:float = 0.5,
         threshold_pii:int = 3,
-        threshold_rag_context_distance:int = 0,
+        threshold_rag_context_distance:float = 0,
         threshold_semantic_similarity_threshold:float = 0.5,
         threshold_toxicity:float = 0.5,
         # Weights, affect the overall score if detected, setting to 0 disables it.
@@ -62,7 +62,7 @@ class OrchestratorConfiguration:
                                                           injection allowed. Negative value disables. Defaults to 0.5.
             threshold_pii (int, optional): Max number of PII entities allowed. Negative value disables.
                                            Defaults to 3.
-            threshold_rag_context_distance (int, optional): Maximum distance/score for RAG
+            threshold_rag_context_distance (float, optional): Maximum distance/score for RAG
                                                             context relevance. If exceeded, RAG is not used.
                                                             Defaults to 0.
             threshold_semantic_similarity_threshold (float, optional): Minimum semantic similarity
