@@ -65,6 +65,7 @@ class MaliciousLLMPrompts:
     def __load_redTeaming__(self):
         """
         Loads and processes the read teaming LLM prompts dataset from CohereLabs/aya_redteaming.
+        See Ahmadian et al., 2024 for more details.
 
         Has the following columns/features:
         - prompt: The prompt text
