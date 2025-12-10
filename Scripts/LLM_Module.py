@@ -229,13 +229,10 @@ Use the given format for outputting the prompt
         messages.append({"role": "user", "content": user_prompt})
         text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         model_inputs = self.tokenizer([text], return_tensors="pt").to(self.actual_model.device)
-        
-        streamer = TextStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
         generated_ids = self.actual_model.generate(**model_inputs,
                                                    do_sample = True, 
                                                    max_new_tokens=max_new_tokens,
-                                                   temperature=temperature, 
-                                                   streamer=streamer)
+                                                   temperature=temperature)
         generated_ids = [
             output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
         ]

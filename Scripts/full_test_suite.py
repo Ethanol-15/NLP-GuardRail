@@ -29,9 +29,10 @@ llm = LLM_Module(LLM_Module.llm_model_list["SeaLLMs1.5B-Chat"])
 orchestrator.set_logging()
 
 dataset = MaliciousLLMPrompts()
+#
 correct_correct = 0 #Positive 
-wrong_correct = 0 #False Negative
-wrong_wrong = 0 # False Positive
+wrong_correct = 0 #False Positive
+wrong_wrong = 0 # False Negative
 correct_wrong = 0 # Negative
 for data in dataset.get_english_dataset():
     prompt = data['prompt']
@@ -42,11 +43,14 @@ for data in dataset.get_english_dataset():
     messages,context,response = orchestrator.prompt_model(llm,prompt)
     if(response.lower() !="filtered."):
         if(data["malicious"] == True):
-            correct_wrong+=1
+            correct_correct+=1
         else:
             wrong_correct+=1
     else:
         if(data["malicious"] == True):
-            
-        correct_correct+=1
-logger.results(f"Correct: {correct_correct} | Incorrect: {wrong_correct}| Accuracy: {correct_correct/correct_correct+wrong_correct}%")
+            wrong_wrong+=1
+        else:
+            correct_wrong+=1
+recall = correct_correct/(correct_correct+wrong_wrong)
+precision = correct_correct/(correct_correct+wrong_correct)
+logger.results(f"""True Positive: {correct_correct} | True Negative: {correct_wrong} |   False Positive: {wrong_correct} | False Negative: {wrong_wrong} F1 Score: {2*(precision*recall)/(precision+recall)}""")
