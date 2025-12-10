@@ -10,6 +10,7 @@ class MaliciousLLMPrompts:
         Each dataset is a huggingface dataset with the following columns/features:
         - prompt: The prompt text
         - attack_type: The type of attack (if applicable)
+        - malicious: Whether the prompt is malicious or not
 
         Dataset Sizes:
         - Fil: 1009 
@@ -45,6 +46,7 @@ class MaliciousLLMPrompts:
         Has the following columns/features:
         - prompt: The prompt text
         - attack_type: The type of attack (if applicable)
+        - malicious: Whether the prompt is malicious or not
         """
         ds = load_dataset("codesagar/malicious-llm-prompts")
         full_ds = concatenate_datasets([ds["train"], ds["validation"], ds["test"]]) # type: ignore
@@ -70,6 +72,7 @@ class MaliciousLLMPrompts:
         Has the following columns/features:
         - prompt: The prompt text
         - attack_type: The type of attack (if applicable)
+        - malicious: All of these prompts are malicious
         """
         # full dataset
         ds = load_dataset("CohereLabs/aya_redteaming", "default")
@@ -84,7 +87,6 @@ class MaliciousLLMPrompts:
                 'attack_type': "",
                 'malicious': True # add this column
             }
-
 
             # Safety check: ensure it's not None before joining
             # if categories is None:
