@@ -15,14 +15,7 @@ class PIINER:
 
     # PII entity types supported by GLiNER Multi-v2.1
     PII_LABELS = {
-        "person",
-        "location",
-        "email",
-        "phone_number",
-        "organization",
-        "id_number",
-        "username",
-        "nationality",
+        
     }
 
     def __init__(self):
@@ -30,7 +23,7 @@ class PIINER:
         os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
         os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
-        self.model = GLiNER.from_pretrained("urchade/gliner_multi-v2.1")
+        self.model = GLiNER.from_pretrained("urchade/gliner_multi_pii-v1")
 
     def detect_entities(self, text: str):
         """

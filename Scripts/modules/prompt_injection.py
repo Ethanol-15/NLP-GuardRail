@@ -30,7 +30,6 @@ class PromptInjection:
         This loads the tokenizer, model, and text-classification pipeline into
         memory.
         """
-        print("Device set to use", "cuda" if torch.cuda.is_available() else "cpu")
         self.model_name = "ProtectAI/deberta-v3-base-prompt-injection"
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name)

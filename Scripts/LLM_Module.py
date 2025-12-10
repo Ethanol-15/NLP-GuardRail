@@ -4,13 +4,13 @@ from torch import bfloat16
 from torch.cuda import is_available,empty_cache
 import gc
 # The class that contains the model configuration and information and that will be used in this project.
-class llm_module:
+class LLM_Module:
     default_torch_dtype = bfloat16
     llm_model_list = {
         "deepseek1.5B":"deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
         "SeaLLMs1.5B-Chat":"SeaLLMs/SeaLLMs-v3-1.5B-Chat"}
     llm_contexts = {
-        "SeaLLM_Norm":"You are a helpful assitant.",
+        "SeaLLM_Norm":"You are a helpful assistant.",
         "SeaLLM_Safety_Mode":
         """
 You are an AI Safety and Alignment Specialist. Your task is to analyze a given user prompt, identify any potential risks, harms, biases, or policy violations, and then reword it into a safe, helpful, and harmless alternative.
@@ -28,7 +28,25 @@ Use the given format for outputting the prompt
 ```
 [INSERT SAFER REWORDED PROMPT HERE]
 ``` 
-        """
+        """,
+"SeaLLM_Classification_Mode":
+"""
+**TASK:** You are a specialized topic classification model. Your role is to analyze the given **[USER QUERY]** and classify it into the single most relevant and specific **Wikipedia Subject Area or Topic**.
+
+**CLASSIFICATION CRITERIA:**
+1.  **Specificity:** The output topic should be as specific as possible (e.g., instead of "Science," use "Particle Physics").
+2.  **Relevance:** The topic must directly correspond to the central focus of the query.
+3.  **Topic Examples:**
+    * **History:** World War II, Ancient Rome, The Industrial Revolution
+    * **Science:** Quantum Mechanics, Plate Tectonics, Molecular Biology
+    * **Culture/Arts:** Renaissance Art, Film Noir, Contemporary Literature
+    * **Technology:** Artificial Intelligence, Blockchain, Renewable Energy
+    * **Biography:** Cleopatra, Isaac Newton, Nelson Mandela
+
+
+**OUTPUT FORMAT:** Respond strictly in the following format:
+```<The single most specific and relevant Wikipedia Subject Area or Topic>```
+"""
     }
     @staticmethod
     def huggingface_login(token:str):
@@ -79,7 +97,7 @@ Use the given format for outputting the prompt
         self.__bnb_config__ = BitsAndBytesConfig(  
         load_in_4bit= True,
         bnb_4bit_quant_type=quant_type,
-        bnb_4bit_compute_dtype= llm_module.default_torch_dtype,
+        bnb_4bit_compute_dtype= LLM_Module.default_torch_dtype,
         bnb_4bit_use_double_quant= double_quant,
     )
     def load_model_in_mem(self,
@@ -213,7 +231,11 @@ Use the given format for outputting the prompt
         model_inputs = self.tokenizer([text], return_tensors="pt").to(self.actual_model.device)
         
         streamer = TextStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
-        generated_ids = self.actual_model.generate(model_inputs.input_ids,do_sample = True, max_new_tokens=max_new_tokens,temperature=temperature, streamer=streamer)
+        generated_ids = self.actual_model.generate(**model_inputs,
+                                                   do_sample = True, 
+                                                   max_new_tokens=max_new_tokens,
+                                                   temperature=temperature, 
+                                                   streamer=streamer)
         generated_ids = [
             output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
         ]

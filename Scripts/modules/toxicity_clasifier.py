@@ -14,7 +14,7 @@ class ToxicityClassifier:
         probs = torch.softmax(outputs.logits, dim=1)[0]
 
         # Combine all 6 toxicity category probabilities
-        toxicity_score = float(probs.sum().item())
+        toxicity_score = float(probs.detach().max())
         return toxicity_score
 
 def toxicity_run(text: str):

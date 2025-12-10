@@ -1,5 +1,5 @@
-from prompt_handler import PromptHandler
-from patterns import REGEX_RULES
+from Scripts.modules.prompt_handler import PromptHandler
+from config.patterns import REGEX_RULES
 
 handler = PromptHandler(regex_rules=REGEX_RULES,
                         languages=["english", "filipino"])

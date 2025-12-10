@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from LLM_Module import llm_module
+from LLM_Module import LLM_Module
 import streamlit as st
 from pathlib import Path
 import gc
@@ -7,12 +7,12 @@ import torch
 from Orchestrator import Orchestrator,OrchestratorConfiguration
 
 LLM_MODELS = {
-    '1.5BSea_Chat': {'name': '1.5B_SeaLLM', 'path': llm_module.llm_model_list['SeaLLMs1.5B-Chat']},
-    '1.5BDeepSeek_Chat': {'name': '1.5B_DeepSeek_Qwen_Distilled','path': llm_module.llm_model_list["deepseek1.5B"]}
+    '1.5BSea_Chat': {'name': '1.5B_SeaLLM', 'path': LLM_Module.llm_model_list['SeaLLMs1.5B-Chat']},
+    '1.5BDeepSeek_Chat': {'name': '1.5B_DeepSeek_Qwen_Distilled','path': LLM_Module.llm_model_list["deepseek1.5B"]}
 }
 
 @st.cache_resource
-def load_model(model_name:str):
+def load_model(model_name:str,enable_quantization:bool = True):
     """Loads a pre-configured language model into memory and caches it. 
 
     It retrieves the model's configuration, initializes the custom LLM module,
@@ -32,10 +32,10 @@ def load_model(model_name:str):
     # CURRENTLY DISABLED TO PREVENT ACCIDENTS, DO NOT USE THIS
     model_config = LLM_MODELS[model_name]
     with st.spinner(f"Loading {model_config['name']}..."):
-        model:llm_module = llm_module(model_name=Path(model_config['path']))
-        #model.model_config_set()
-        #model.quantization_4_bit_config()
-        #model.load_model_in_mem(quant_4bit=True)
+        model:LLM_Module = LLM_Module(model_name=Path(model_config['path']))
+        model.model_config_set()
+        model.quantization_4_bit_config()
+        model.load_model_in_mem(quant_4bit=enable_quantization)
         st.success(f"Successfully loaded: {model_config['name']}")
     return model
 
