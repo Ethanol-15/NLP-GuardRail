@@ -1,6 +1,7 @@
 from modules.toxicity_clasifier import toxicity_run
 from modules.pii_ner import PIINER
 from LLM_Module import llm_module
+from modules.semantic_similarity import SemanticSimilarityScorer
 # Import patterns here.
 import logging
 logging.basicConfig(filename='results.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -141,15 +142,19 @@ class OrchestratorConfiguration:
         """
         error_message = ""
         if(self.threshold_toxicity < 0 or self.threshold_toxicity > 1):
-            error_message.join(f"Toxicity threshold must be < 0 and > 1, found {self.threshold_toxicity}\n") 
-        if(self.weight_overall_score <0 or self.weight_overall_score > 1):
-            error_message.join(f"Overall score must be < 0 and > 1, found {self.weight_overall_score}\n")
+            error_message.join(f"Toxicity threshold must be > 0 and < 1, found {self.threshold_toxicity}\n") 
+        if(self.weight_overall_score < 0 or self.weight_overall_score > 1):
+            error_message.join(f"Overall score must be > 0 and < 1, found {self.weight_overall_score}\n")
         if(self.threshold_banned_word_tolerance is not int):
             error_message.join(f"Banned word tolerance threshold must be an integer!, found {self.threshold_banned_word_tolerance}\n")
-        if(self.threshold_prompt_injection is not int):
-            error_message.join(f"Prompt injection tolerance threshold must be an integer!, found {self.threshold_banned_word_tolerance}\n")
-        if(self.threshold_banned_word_tolerance):
-            error_message.join(f"Banned word tolerance threshold must be an ")
+        if(self.threshold_prompt_injection <0 or self.threshold_prompt_injection > 1):
+            error_message.join(f"Prompt injection tolerance threshold must be >0 or <1, found {self.threshold_banned_word_tolerance}\n")
+        if(self.threshold_banned_word_tolerance is not int):
+            error_message.join(f"Banned word tolerance threshold must be an integer {self.threshold_banned_word_tolerance}\n")
+        if(self.threshold_semantic_similarity_threshold <0 or self.threshold_semantic_similarity_threshold > 1):
+            error_message.join(f"Prompt injection tolerance threshold must be >0 or <1, found {self.threshold_semantic_similarity_threshold}\n")
+        if(self.threshold_llm_rephrase):
+            error_message.join(f"LLM_Rephrase should be >0 or <1, found {self.threshold_llm_rephrase}")
         if(len(error_message>0)):
             raise Exception(f"Configuration failed, with the following errors:\n{error_message}")
     @staticmethod
@@ -209,15 +214,18 @@ class Orchestrator:
                                   carries the rephrased input.
         """
         try:
-            banned_word_score = 1 #INSERT BANNED WORD MODULE HERE, NUMBER OF BANNED WORKS
-            self.decide_action(safety_model,banned_word_score,self.config.threshold_banned_word_tolerance,"Banned_Words",input)
-            toxicity_probability = toxicity_run()
-            self.decide_action(safety_model,toxicity_probability,self.config.threshold_toxicity,"Toxicity_Score",input)
-            piiner_results_count = PIINER().analyze() #TODO: Insert results, NUMBER OF PII FOUND
-            self.decide_action(safety_model,piiner_results_count,self.config.threshold_pii,"Personable_Interifiable_Information",input)
-            prompt_injection_prob = 0 #TODO: PROMPT INJECT PROBABILITY
-            self.decide_action(safety_model,prompt_injection_prob,self.config.threshold_prompt_injection,"Prompt_Injection",input)
-            # Last check if the combined results do not pass the threshold
+            if(self.config.threshold_banned_word_tolerance>=0):
+                banned_word_score = 1 #INSERT BANNED WORD MODULE HERE, NUMBER OF BANNED WORKS
+                self.decide_action(safety_model,banned_word_score,self.config.threshold_banned_word_tolerance,"Banned_Words",input)
+            if(self.config.threshold_toxicity>0):
+                toxicity_probability = toxicity_run()
+                self.decide_action(safety_model,toxicity_probability,self.config.threshold_toxicity,"Toxicity_Score",input)
+            if(self.config.threshold_pii>=0):
+                piiner_results_count = PIINER().analyze() #TODO: Insert results, NUMBER OF PII FOUND
+                self.decide_action(safety_model,piiner_results_count["person_location_count"],self.config.threshold_pii,"Personable_Interifiable_Information",input)
+            if(self.config.threshold_prompt_injection>0):
+                prompt_injection_prob = 0 #TODO: PROMPT INJECT PROBABILITY
+                self.decide_action(safety_model,prompt_injection_prob,self.config.threshold_prompt_injection,"Prompt_Injection",input)
             overall_score = (
                             # Base Score
                             (banned_word_score * self.config.weight_banned_word + piiner_results_count * self.config.weight_pii)
@@ -319,10 +327,13 @@ class Orchestrator:
             return 
         if(score>score_threshold):
             if(score_threshold*self.config.threshold_llm_rephrase>score and filter_reason is not "Hallucination"):
+                def extract_safe_reword(text:str):
+                    
+                    return
                 #NOTE: Since we are using the same model for safety llm (due to restrictions, we just pass this to the same model)
                 logging.debug("Safety_LLM_Prompt_Triggered, rewording the prompt into a safer prompt")
                 cleaned_output = model.prompt_model_single(system_context=llm_module.llm_contexts["SeaLLM_Safety_Mode"],user_prompt=current_input)
-                #TODO: Extract the cleaned output.
+                cleaned_output = 
                 raise LLMRewordedException(cleaned_output)
             else:
                 logging.debug(f"Filtered due to {filter_reason}, {score} > {score_threshold}") 
