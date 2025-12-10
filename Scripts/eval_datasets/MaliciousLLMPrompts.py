@@ -56,9 +56,9 @@ class MaliciousLLMPrompts:
             return example
 
         # we'll then only use the responses
-        full_ds = full_ds.filter(lambda example: example['malicious'] == True)
+        # full_ds = full_ds.filter(lambda example: example['malicious'] == True)
         full_ds = full_ds.map(fillNone)
-        reduced_dataset = full_ds.select_columns(['prompt', 'attack_type'])
+        reduced_dataset = full_ds.select_columns(['prompt', 'attack_type', 'malicious'])
         # dataset.filter(lambda example: example['malicious'] == False)
         return reduced_dataset
     
@@ -78,25 +78,35 @@ class MaliciousLLMPrompts:
         def flatten_attack_type(example):
             # Get the list
             categories = ast.literal_eval(example['attack_type'])
+            
+            prompt_format = {
+                'prompt': example['prompt'],
+                'attack_type': "",
+                'malicious': True # add this column
+            }
+
 
             # Safety check: ensure it's not None before joining
-            if categories is None:
-                return {'attack_type': ""}
-                
-            # Join with a comma and space (or just a space " " if preferred)
-            return {'attack_type': " | ".join(categories)}
+            # if categories is None:
+            #     return {'attack_type': ""}
+            
+            if categories is not None:
+                prompt_format['attack_type'] = " | ".join(categories)
+            return prompt_format
+            # # Join with a comma and space (or just a space " " if preferred)
+            # return {'attack_type': " | ".join(categories)}
         
         # since it's a dataset Dictionary, we'll need to only get two of these
         prompts = {
             "filipino": ds["filipino"]\
                 .rename_column("harm_category", "attack_type")\
                 .map(flatten_attack_type)\
-                .select_columns(["prompt", "attack_type"]),
+                .select_columns(["prompt", "attack_type", 'malicious']),
 
             "english": ds["english"]\
                 .rename_column("harm_category", "attack_type")\
                 .map(flatten_attack_type)\
-                .select_columns(["prompt", "attack_type"])
+                .select_columns(["prompt", "attack_type", 'malicious'])
         }
         return prompts
     
