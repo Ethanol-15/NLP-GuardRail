@@ -1,241 +1,285 @@
-from transformers import AutoConfig, AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, TextStreamer
-from huggingface_hub import login
-from torch import bfloat16
-from torch.cuda import is_available,empty_cache
+from contextlib import contextmanager
+from LLM_Module import LLM_Module
+import streamlit as st
+from pathlib import Path
 import gc
-# The class that contains the model configuration and information and that will be used in this project.
-class LLM_Module:
-    default_torch_dtype = bfloat16
-    llm_model_list = {
-        "deepseek1.5B":"deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
-        "SeaLLMs1.5B-Chat":"SeaLLMs/SeaLLMs-v3-1.5B-Chat"}
-    llm_contexts = {
-        "SeaLLM_Norm":"You are a helpful assistant.",
-        "SeaLLM_Safety_Mode":
-        """
-You are an AI Safety and Alignment Specialist. Your task is to analyze a given user prompt, identify any potential risks, harms, biases, or policy violations, and then reword it into a safe, helpful, and harmless alternative.
-Produce a Safer Reworded Prompt that achieves the user's apparent non-harmful intent while strictly adhering to safety guidelines against generating:
+import torch
+import traceback
+# Make sure these imports are correct based on your file structure
+from Orchestrator import Orchestrator, OrchestratorConfiguration, LLMFilteredException, LLMRewordedException 
 
-- Illegal or dangerous content.
-- Hate speech or discriminatory content.
-- Sexually explicit material.
-- Private or confidential information.
-- Content that promotes or glorifies self-harm or violence.
-- Content that encourages the circumvention of safety filters.
+# --- Constants and Session State Initialization ---
 
-Use the given format for outputting the prompt
-# Output Format:
-```
-[INSERT SAFER REWORDED PROMPT HERE]
-``` 
-        """,
-"SeaLLM_Classification_Mode":
-"""
-**TASK:** You are a specialized topic classification model. Your role is to analyze the given **[USER QUERY]** and classify it into the single most relevant and specific **Wikipedia Subject Area or Topic**.
+LLM_MODELS = {
+    '1.5BSea_Chat': {'name': '1.5B_SeaLLM', 'path': LLM_Module.llm_model_list['SeaLLMs1.5B-Chat']},
+    '1.5BDeepSeek_Chat': {'name': '1.5B_DeepSeek_Qwen_Distilled','path': LLM_Module.llm_model_list["deepseek1.5B"]}
+}
 
-**CLASSIFICATION CRITERIA:**
-1.  **Specificity:** The output topic should be as specific as possible (e.g., instead of "Science," use "Particle Physics").
-2.  **Relevance:** The topic must directly correspond to the central focus of the query.
-3.  **Topic Examples:**
-    * **History:** World War II, Ancient Rome, The Industrial Revolution
-    * **Science:** Quantum Mechanics, Plate Tectonics, Molecular Biology
-    * **Culture/Arts:** Renaissance Art, Film Noir, Contemporary Literature
-    * **Technology:** Artificial Intelligence, Blockchain, Renewable Energy
-    * **Biography:** Cleopatra, Isaac Newton, Nelson Mandela
+# --- Cache and Context Management ---
 
+@st.cache_resource
+def load_model(model_name:str, enable_quantization:bool = True) -> LLM_Module:
+    """Loads a pre-configured language model into memory and caches it."""
+    model_config = LLM_MODELS[model_name]
+    with st.spinner(f"Loading {model_config['name']}..."):
+        # Path() conversion is important as the model name can be a string path
+        model:LLM_Module = LLM_Module(model_name=model_config['path'])
+        model.model_config_set()
+        model.quantization_4_bit_config()
+        # Ensure we use the Path object for consistency if needed, but model_config['path'] is fine
+        model.load_model_in_mem(quant_4bit=enable_quantization)
+        st.success(f"Successfully loaded: {model_config['name']}")
+    return model
 
-**OUTPUT FORMAT:** Respond strictly in the following format:
-```<The single most specific and relevant Wikipedia Subject Area or Topic>```
-"""
-    }
-    @staticmethod
-    def huggingface_login(token:str):
-        """
-        Args:
-            token(str): The token for accessing the model
-        A huggingface_login gateway.
-        """
-        login(token)
-    def __init__(self,model_name:str):
-        """
-        Creates an unloaded model and allows for managing of a model in memory.
-        Args:
-            model_name(str): The name of the model in huggingface or locally.
-        """
-        print(f"Using the Model: {model_name})")
-        self.model_name,self.tokenizer = model_name, AutoTokenizer.from_pretrained(model_name)
-        self.__model_config__ = None
-        self.__bnb_config__ = None
-        self.actual_model = None
-    def unload_model(self):
-        """
-        Call this to unload the model from memory. Calls the garbage collector as well.
-        """
-        del self.__model_config__
-        del self.__bnb_config__ 
-        del self.actual_model
-        del self.tokenizer
+def handle_model_switch():
+    """Handles memory cleanup when the active LLM is switched."""
+    new_model_key = st.session_state.model_selector
+    if 'active_model_key' in st.session_state and st.session_state.active_model_key != new_model_key:
+        old_model_key = st.session_state.active_model_key
+        # Clear the cached instance of the old model
+        try:
+            load_model.clear() 
+        except:
+             # Fallback if clear() on an individual key is not supported by current Streamlit version
+             pass
+        
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         gc.collect()
-        if is_available():
-            empty_cache()
-    def model_config_set(self,**kwargs):
-        self.__model_config__ = AutoConfig.from_pretrained(self.model_name,**kwargs)
-    def quantization_4_bit_config(self,double_quant=False,quant_type="nf4"):
-        """Sets up the 4-bit quantization configuration for the model.
+        st.session_state['active_model_key'] = new_model_key # Update the active key
 
-        This function initializes a `BitsAndBytesConfig` object and stores it in
-        `self.__bnb_config__`. This configuration is then used by the
-        `load_model_in_mem` function to load the model in 4-bit mode.
+@contextmanager
+def loading_spinner():
+    """Custom context manager for the loading box."""
+    thinking_placeholder = st.empty()
+    thinking_placeholder.info(" **Loading...** Processing request...")
+    try:
+        yield
+    finally:
+        thinking_placeholder.empty()
 
-        Args:
-            double_quant: If True, enables **double quantization** (a secondary
-                quantization applied to the quantization constants) to save more memory.
-                Defaults to False.
-            quant_type: The type of 4-bit quantization to use. Common options are
-                `"nf4"` (Normal Float 4) or `"fp4"` (Float Point 4). Defaults to `"nf4"`.
-        """
-        self.__bnb_config__ = BitsAndBytesConfig(  
-        load_in_4bit= True,
-        bnb_4bit_quant_type=quant_type,
-        bnb_4bit_compute_dtype= LLM_Module.default_torch_dtype,
-        bnb_4bit_use_double_quant= double_quant,
+# --- Core Logic ---
+
+def get_orchestrator_config() -> OrchestratorConfiguration:
+    """Creates an OrchestratorConfiguration instance from Streamlit session state."""
+    config = OrchestratorConfiguration(
+        # General Options
+        banned_word_allcase=st.session_state.banned_word_allcase_option,
+        option_redact_pii_person=st.session_state.redact_pii_person,
+        option_redact_pii_location=st.session_state.redact_pii_location,
+        option_redact_pii_others=st.session_state.redact_pii_others,
+        option_enable_rag=st.session_state.enable_rag,
+        option_enable_llm_reword=st.session_state.enable_llm_reword,
+
+        # Thresholds
+        threshold_banned_word_tolerance=st.session_state.thresh_banned_word,
+        threshold_prompt_injection=st.session_state.thresh_prompt_injection,
+        threshold_pii=st.session_state.thresh_pii,
+        threshold_rag_context_distance=st.session_state.thresh_rag_distance,
+        threshold_semantic_similarity_threshold=st.session_state.thresh_semantic_similarity,
+        threshold_toxicity=st.session_state.thresh_toxicity,
+        
+        # Weights
+        weight_banned_word=st.session_state.weight_banned_word,
+        weight_pii=st.session_state.weight_pii,
+        weight_toxicity=st.session_state.weight_toxicity,
+        weight_overall_score=st.session_state.weight_overall_score,
+        threshold_llm_rephrase=st.session_state.thresh_llm_rephrase,
     )
-    def load_model_in_mem(self,
-                          dtype = default_torch_dtype,
-                          device_map = "auto",
-                          quant_4bit = False):
-        """Loads the pre-trained language model into memory for inference.
+    
+    # Initialize default regex for safety checks
+    
+    config.default_english_regex()
+    config.default_filipino_regex()
+    return config
 
-        The model is loaded using configuration set in `self.__model_config__`. It
-        supports loading the model with optional 4-bit quantization if configured
-        previously.
+def submit_prompt():
+    """Handles the submission, model running, and output display.""" 
+    prompt = st.session_state.user_prompt_input
+    model_key = st.session_state.model_selector
+    
+    if not prompt:
+        st.error("Please enter a prompt before submitting.")
+        return
 
-        Args:
-            dtype: The torch data type to use for the model weights (e.g., torch.float16).
-                Defaults to the class's `default_torch_dtype`.
-            device_map: A dictionary or string specifying how to distribute the model
-                across devices (e.g., CPU, GPU). Defaults to `"auto"`.
-            quant_4bit: If True and a BitsAndBytesConfig (`self.__bnb_config__`) is
-                available, the model is loaded with 4-bit quantization. Defaults to False.
+    try:
+        # 1. Load Model and Configuration
+        config = get_orchestrator_config()
+        orchestrator = Orchestrator(config=config)
+        # Assuming the safety model is the same as the main model for simplicity
+        model = load_model(model_key) 
+        
+        # Enable logging for results.log output
+        orchestrator.set_logging(True) 
+        
+        with loading_spinner():
+            # 2. Input Validation
+            validated_input = orchestrator.validate_input(safety_model=model, input=prompt)
+            st.session_state.model_output_context = None
+            
+            # 3. Prompting and Output Generation
+            if validated_input.lower() == "filtered.":
+                print("It got filtered!")
+                st.session_state.model_output = f"**Input Filtered.** Reason: {validated_input}"
+            elif validated_input.startswith("Filtered due to"):
+                print("It got filtered as well")
+                # Exception was caught and returned as a string from validate_input
+                st.session_state.model_output = f"**Input Filtered.** Reason: {validated_input}"
+            else:
+                print("Generating")
+                # Actual model generation
+                messages_log = st.session_state.get('chat_history', None)
+                messages, context, response = orchestrator.prompt_model(
+                    llm_model=model,
+                    input=validated_input,
+                    max_tokens=st.session_state.overall_budget_input,
+                    chat_log=messages_log
+                )
+                
+                # 4. Output Validation (Hallucination check via semantic similarity)
+                final_response = orchestrator.validate_output(model=model,llm_output=response, context=context)
+                
+                # Store chat history and context
+                st.session_state.chat_history = messages
+                st.session_state.model_output_context = context
 
-        Raises:
-            Exception: If `self.__model_config__` is None, indicating that the model
-                configuration was not set prior to calling this function.
+                if final_response.lower() == "filtered.":
+                    st.session_state.model_output = f"**Output Filtered.** Reason: Hallucination detected (Similarity too low)."
+                else:
+                    st.session_state.model_output = final_response
+    except Exception as e:
+        st.error(f"An unexpected error occurred: {traceback.format_exc()}")
 
-        Note:
-            This function only loads the model if `self.actual_model` is currently None.
-        """
-        if(self.actual_model == None):
-            print(f"Loading {self.model_name} into memory.")
-            if(self.__model_config__ == None):
-                raise Exception("Model Config not initialized! call model_config_set first!")
-            if(self.__bnb_config__ is not None and quant_4bit):
-                print("Using 4-Bit_Quantized Model with the selected configuration!")
-            self.actual_model = AutoModelForCausalLM.from_pretrained(
-                    self.model_name,
-                    quantization_config = self.__bnb_config__,
-                    config = self.__model_config__,
-                    dtype = dtype,
-                    device_map = device_map)
-        else:
-            print(f"Model {self.model_name} is already loaded!")
-    def prompt_model_single(self,
-                      system_context:str,
-                      user_prompt:str,
-                      max_new_tokens=2**12,
-                      temperature=0.6):
-        """Generates a single, non-streaming response from the LLM.
+def reset_fields():
+    """Resets input, output, and chat history."""
+    st.session_state.user_prompt_input = ""
+    st.session_state.model_output = ""
+    st.session_state.model_output_context = ""
+    if 'chat_history' in st.session_state:
+        del st.session_state.chat_history
+    st.toast("Input, output, and history cleared!", icon="🧹")
 
-        This function formats a request consisting of a system context and a single
-        user prompt, sends it to the language model, and returns the final
-        generated text.
+# --- Streamlit UI Layout ---
 
-        Args:
-            system_context: The string defining the system's role, instructions,
-                or background context for the model.
-            user_prompt: The user's input, question, or task for the model.
-            max_new_tokens: The maximum number of tokens to generate in the
-                response. Defaults to 4096.
-            temperature: The generation temperature (randomness) to use.
-                Higher values make the output more random. Defaults to 0.6.
+st.set_page_config(
+    page_title="LLM Guardrail Orchestrator",
+    layout="wide"
+)
 
-        Returns:
-            str: The decoded text response generated by the language model.
+# Initialize all critical session state keys here with default values
+if 'active_model_key' not in st.session_state:
+    st.session_state['active_model_key'] = list(LLM_MODELS.keys())[0]
+if 'overall_budget_input' not in st.session_state:
+    st.session_state['overall_budget_input'] = 4096
+if 'model_output' not in st.session_state:
+    st.session_state['model_output'] = ""
+if 'user_prompt_input' not in st.session_state:
+    st.session_state['user_prompt_input'] = ""
+if 'chat_history' not in st.session_state:
+    st.session_state['chat_history'] = None
+if 'model_output_context' not in st.session_state:
+    st.session_state['model_output_context'] = ""
 
-        Raises:
-            Exception: If `self.actual_model` is not loaded (i.e., is `None`).
-        """
-        if(self.actual_model is None):
-            raise Exception("Model is not loaded!")
-        messages =  [{"role": "system", "content": system_context},
-                  {"role": "user", "content": user_prompt}]
-        llm_input = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        model_inputs = self.tokenizer([llm_input], return_tensors="pt").to(self.actual_model.device)
-        generated_ids = self.actual_model.generate(
-                **model_inputs,
-                temperature=temperature,
-                max_new_tokens= max_new_tokens
-            )
-        output_ids = generated_ids[0][len(model_inputs.input_ids[0]):].tolist()
-        return self.tokenizer.decode(output_ids,skip_special_tokens=True)
-      
-    def chat_model(self,user_prompt:str,
-                   max_new_tokens:int=2**12,
-                   temperature:float = 0.6,
-                   system_context:str|None = None,
-                   messages:dict|None = None):
-        """Generates a streaming response from the LLM based on user input and configuration.
+st.title("🛡️ LLM Guardrail Orchestrator Interface")
+st.markdown("Configure the **Orchestrator** in the sidebar, select an **LLM**, and submit your prompt.")
 
-        This method manages the conversation history, applies the chat template,
-        tokenizes the input, and generates a streamed response using the language
-        model with specified generation parameters. The conversation history is
-        updated with the new user prompt and the model's response.
+# Top Row: Model Selection and Reset
+col_model, col_reset = st.columns([3, 1])
 
-        Args:
-            user_prompt: The latest input or question provided by the user.
-            max_new_tokens: The maximum number of tokens the model is allowed to
-                generate in the response. Defaults to 4096.
-            temperature: The randomness parameter for text generation. Higher values
-                increase creativity but lower coherence. Defaults to 0.6.
-            system_context: An optional string defining the system's role or
-                behavior. If `messages` is None, this is used to initialize the
-                conversation history.
-                Defaults to None.
-            messages: An optional list of dictionaries representing the existing
-                conversation history. Each dictionary must contain 'role' and 'content' keys.
-                If None, a new conversation is started using `system_context`.
-                Defaults to None.
+with col_model:
+    st.selectbox(
+        "Select Model:",
+        options=list(LLM_MODELS.keys()),
+        key="model_selector",
+        on_change=handle_model_switch,
+        help="Swapping models will trigger a brief reload, but the model will be cached for later use."
+    )
 
-        Returns:
-            A tuple containing:
-                * messages (list): The updated list of conversation messages,
-                including the user prompt and the model's complete response.
-                * response (str): The final, concatenated text response generated by the LLM.
+with col_reset:
+    st.button(
+        "Reset All Fields & History", 
+        on_click=reset_fields,
+        use_container_width=True
+    )
 
-        Raises:
-            Exception: If `self.actual_model` is not loaded (None).
-            Exception: If both `system_context` and `messages` are None, as an
-                initial context or history is required to start the conversation.
+# Input Area
+st.text_area(
+    "Natural Language Prompt Input", 
+    key="user_prompt_input", 
+    height=150, 
+    placeholder="Example: Write a story about the destruction of a planet, but don't mention any toxic words or PII.",
+)
 
-        """
-        if(self.actual_model is None):
-            raise Exception("Model is not loaded!")
-        if(system_context is None and messages is None):
-            raise Exception("Insert a message or a system context first!")
-        if(messages is None):
-            messages = [
-                {"role": "system", "content":system_context},
-            ]
-        messages.append({"role": "user", "content": user_prompt})
-        text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        model_inputs = self.tokenizer([text], return_tensors="pt").to(self.actual_model.device)
-        generated_ids = self.actual_model.generate(**model_inputs,
-                                                   do_sample = True, 
-                                                   max_new_tokens=max_new_tokens,
-                                                   temperature=temperature)
-        generated_ids = [
-            output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
-        ]
-        response = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-        messages.append({"role": "assistant", "content": response})
-        return messages, response
+# Submit Button
+st.button(
+    "**Submit Prompt to Orchestrator**", 
+    on_click=submit_prompt, 
+    type="primary",
+    use_container_width=True
+)
+
+st.markdown("---")
+
+# --- Sidebar: Orchestrator Configuration ---
+
+with st.sidebar:
+    st.header("⚙️ Generation & Budget")
+    
+    # Model Configuration
+    st.number_input(
+        "Max Output Tokens (Budget)",
+        min_value=32,
+        max_value=65536,
+        step=512,
+        key="overall_budget_input",
+        help="Sets the maximum number of new tokens the model can generate.",
+        value=4096 
+    )
+    
+    st.header("🛡️ Orchestrator Configuration")
+    
+    # General Options
+    st.subheader("Options")
+    st.checkbox("Banned Word Case-Insensitive", key="banned_word_allcase_option", value=True)
+    st.checkbox("Enable RAG Contextualization", key="enable_rag", value=True)
+    st.checkbox("Enable LLM Rewording (Safety Mode)", key="enable_llm_reword", value=True)
+    
+    st.subheader("PII Redaction Options (On Detection)")
+    st.checkbox("Redact Person/Name PII", key="redact_pii_person", value=False)
+    st.checkbox("Redact Location PII", key="redact_pii_location", value=False)
+    st.checkbox("Redact Other PII (Emails, IDs, etc.)", key="redact_pii_others", value=False)
+
+    st.subheader("Filter Thresholds (Immediate Filter)")
+    # Thresholds
+    st.number_input("Toxicity Threshold (0-1)", key="thresh_toxicity", min_value=0.0, max_value=1.0, step=0.05, value=0.9)
+    st.number_input("Banned Word Tolerance (Count)", key="thresh_banned_word", min_value=-1, max_value=10, step=1, value=3)
+    st.number_input("PII Entity Count Threshold", key="thresh_pii", min_value=-1, max_value=10, step=1, value=2)
+    st.number_input("Prompt Injection Threshold (0-1)", key="thresh_prompt_injection", min_value=0.0, max_value=1.0, step=0.05, value=0.5)
+    st.number_input("RAG Context Distance (0-1, 0=Filter)", key="thresh_rag_distance", min_value=0.0, max_value=1.0, step=0.1, value=0.0, help="If context relevance score is above this distance (closer to 0 is better, but this should ideally be 0 to use context).")
+    st.number_input("Semantic Similarity (Hallucination Check) Threshold (0-1)", key="thresh_semantic_similarity", min_value=0.0, max_value=1.0, step=0.05, value=0.5, help="Minimum similarity required between RAG context and output.")
+
+    st.subheader("Reword/Filtering Range and Weights")
+    # Rewording/Rephrase Threshold
+    st.number_input("LLM Reword Multiplier (0-1)", key="thresh_llm_rephrase", min_value=0.0, max_value=1.0, step=0.1, value=0.5, help="Score must be > (Threshold) AND < (Threshold * (1 + Multiplier)) to trigger LLM Rewording.")
+    
+    # Weights for Overall Score
+    st.number_input("Overall Score Filter Weight (0-1)", key="weight_overall_score", min_value=0.0, max_value=1.0, step=0.05, value=0.8, help="Max weight for overall score is calculated as MaxPossibleScore * this weight.")
+    st.number_input("Banned Word Weight (0-1)", key="weight_banned_word", min_value=0.0, max_value=1.0, step=0.05, value=0.4)
+    st.number_input("PII Count Weight (0-1)", key="weight_pii", min_value=0.0, max_value=1.0, step=0.05, value=0.4)
+    st.number_input("Toxicity Probability Weight (0-1)", key="weight_toxicity", min_value=0.0, max_value=1.0, step=0.05, value=0.4)
+
+
+# Output Area
+st.header("Model Output")
+
+st.info("RAG Context Used (If Enabled)", icon="📖")
+st.code(st.session_state.model_output_context, language="text")
+
+st.text_area(
+    "Model Output", 
+    key="model_output", # Renamed key to avoid conflict with model_output
+    value=st.session_state.model_output,
+    disabled=True,
+    height=250, 
+    placeholder="Model Output goes here.",
+)
