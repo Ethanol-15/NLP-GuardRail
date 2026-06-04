@@ -352,7 +352,7 @@ class Orchestrator:
             rag = ContextualizationEngine()
             topic = llm_model.prompt_model_single(user_prompt=input,system_context=LLM_Module.llm_contexts["SeaLLM_Classification_Mode"])
             
-            self.log(f"Extracted Topic: {topic if not None else "None"}" )
+            self.log(f"Extracted Topic: {topic if topic is not None else 'None'}" )
             if(topic is None):
                 print("Rag could not be done!")
                 return None
